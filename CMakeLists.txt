@@ -14,7 +14,13 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIGURATION>")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIGURATION>")
 
 add_subdirectory(vendor)
-add_subdirectory(src)
 
+file(GLOB SRC_DIRS RELATIVE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/*")
+
+foreach(SRC_DIR ${SRC_DIRS})
+  if (IS_DIRECTORY "${CMAKE_SOURCE_DIR}/src/${SRC_DIR}")
+    add_subdirectory("src/${SRC_DIR}")
+  endif()
+endforeach()
 
 
