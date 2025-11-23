@@ -5,7 +5,6 @@ file(GLOB ALL_CPP_FILES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 set(ALL_CPP_FILES "")
 foreach(CPP_PATH ${ALL_CPP_FILES_PATH}) 
   get_filename_component(CPP_FILE "${CPP_PATH}" NAME)
-  message("--- ${CPP_FILE}")
   list(APPEND ALL_CPP_FILES "${CPP_FILE}")
 endforeach()
 

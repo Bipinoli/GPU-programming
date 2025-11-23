@@ -10,6 +10,7 @@ const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
 GLuint submitShaderProgram(const GLchar* vertexShaderSource, const GLchar* fragmentShaderSource);
+GLuint getUniformLocation(GLuint shaderProgramId, const char* uniformName);
 
 int main() {
   glfwInit();
@@ -38,10 +39,11 @@ int main() {
   GLuint shaderProgramId = submitShaderProgram(vertexShaderSource, fragmentShaderSource);
 
   float vertices[] = {
-    -0.5f, 0.2f, 0.0f,
-    0.3f, 0.8f, 0.0f,
-    0.0f, -0.8f, 0.0f,
-    0.5f, -0.8f, 0.0f
+    // vec3 vertex, vec3 color
+    -0.5f, 0.2f, 0.0f, 1.0f, 0.0f, 0.0f,
+    0.3f, 0.8f, 0.0f, 0.0f, 1.0f, 0.0f,
+    0.0f, -0.8f, 0.0f, 0.0f, 0.0f, 1.0f,
+    0.5f, -0.8f, 0.0f, 0.0f, 0.5f, 0.5f,
   };
   unsigned int indices[] = {
     0, 1, 2,
@@ -60,34 +62,25 @@ int main() {
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
   glEnableVertexAttribArray(0);
+  glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+  glEnableVertexAttribArray(1);
 
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindVertexArray(0);
 
-  unsigned int frameCounter = 30;
-  bool showWireframe = false;
-
   while (!glfwWindowShouldClose(window)) {
     processInput(window);
       
-    if (showWireframe) {
-      glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    } else {
-      glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    }
-
-    frameCounter -= 1;
-    if (frameCounter == 0) {
-      showWireframe = !showWireframe;
-      frameCounter = 30;
-    }
-
     glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
+    float time = glfwGetTime();
+    GLuint uniformTimeLoc = getUniformLocation(shaderProgramId, "time");
+
     glUseProgram(shaderProgramId);
+    glUniform1f(uniformTimeLoc, time);
     glBindVertexArray(VAO);
     // glDrawArrays(GL_TRIANGLES, 0, 3);
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -145,8 +138,18 @@ GLuint submitShaderProgram(const GLchar* vertexShaderSource, const GLchar* fragm
     char log[512];
     glGetProgramInfoLog(shaderProgramId, 512, nullptr, log);
     std::cout << "ERROR! shader link failed: " << log << std::endl;
+    exit(1);
   }
   glDeleteShader(vertexShaderId);
   glDeleteShader(fragmentShaderId);
   return shaderProgramId;
+}
+
+GLuint getUniformLocation(GLuint shaderProgramId, const char* uniformName) {
+  int uniformLoc = glGetUniformLocation(shaderProgramId, uniformName);
+  if (uniformLoc == -1) {
+    std::cout << "ERROR! couldn't locate the uniform: " << uniformName << std::endl;
+    exit(1);
+  }
+  return uniformLoc;
 }
