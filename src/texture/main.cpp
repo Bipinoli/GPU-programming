@@ -2,7 +2,8 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <stb_image.h>
-#include "shaders.hpp"
+#include "shader.hpp"
+#include "shader_sources.hpp"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow *window);
@@ -10,9 +11,10 @@ void processInput(GLFWwindow *window);
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
-GLuint submitShaderProgram(const GLchar* vertexShaderSource, const GLchar* fragmentShaderSource);
-GLuint getUniformLocation(GLuint shaderProgramId, const char* uniformName);
-GLuint getUniformLocation(GLuint shaderProgramId, const char* uniformName);
+
+GLuint loadTexture(const char* imgPath);
+
+
 
 int main() {
   glfwInit();
@@ -38,7 +40,8 @@ int main() {
       return -1;
   }
 
-  GLuint shaderProgramId = submitShaderProgram(vertexShaderSource, fragmentShaderSource);
+  Shader shader(vertexShaderSource, fragmentShaderSource);
+  GLuint textureId = loadTexture("texture/container.jpg");
 
   float vertices[] = {
     // vec3 vertex, vec3 color
@@ -78,13 +81,9 @@ int main() {
     glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    float time = glfwGetTime();
-    GLuint uniformTimeLoc = getUniformLocation(shaderProgramId, "time");
+    shader.use();
 
-    glUseProgram(shaderProgramId);
-    glUniform1f(uniformTimeLoc, time);
     glBindVertexArray(VAO);
-    // glDrawArrays(GL_TRIANGLES, 0, 3);
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
 
@@ -94,7 +93,6 @@ int main() {
 
   glDeleteBuffers(1, &VBO);
   glDeleteVertexArrays(1, &VAO);
-  glDeleteProgram(shaderProgramId);
 
   glfwTerminate();
   return 0;
@@ -110,48 +108,24 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 }
 
 
-GLuint submitShader(const GLchar* source, GLenum shaderType) {
-  GLuint shaderId = glCreateShader(shaderType);
-  glShaderSource(shaderId, 1, &source, nullptr);
-  glCompileShader(shaderId);
-  int success;
-  glGetShaderiv(shaderId, GL_COMPILE_STATUS, &success);
-  if (!success) {
-    char log[512];
-    glGetShaderInfoLog(shaderId, 512, nullptr, log);
-    std::cout << "ERROR! shader compilation failed (" 
-      << (shaderType == GL_VERTEX_SHADER ? "VERTEX_SHADER" : "FRAGMENT_SHADER")
-      << "): " << log << std::endl;
-    exit(1);
-  }
-  return shaderId;
-}
 
-GLuint submitShaderProgram(const GLchar* vertexShaderSource, const GLchar* fragmentShaderSource) {
-  GLuint vertexShaderId = submitShader(vertexShaderSource, GL_VERTEX_SHADER);
-  GLuint fragmentShaderId = submitShader(fragmentShaderSource, GL_FRAGMENT_SHADER);
-  GLuint shaderProgramId = glCreateProgram();
-  glAttachShader(shaderProgramId, vertexShaderId);
-  glAttachShader(shaderProgramId, fragmentShaderId);
-  glLinkProgram(shaderProgramId);
-  int success;
-  glGetProgramiv(shaderProgramId, GL_LINK_STATUS, &success);
-  if (!success) {
-    char log[512];
-    glGetProgramInfoLog(shaderProgramId, 512, nullptr, log);
-    std::cout << "ERROR! shader link failed: " << log << std::endl;
+GLuint loadTexture(const char* imgPath) {
+  GLuint texture;
+  glGenTextures(1, &texture);
+  glBindTexture(GL_TEXTURE_2D, texture);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  int width, height, nrChannels;
+  unsigned char *data = stbi_load(imgPath, &width, &height, &nrChannels, 0);
+  if (!data) {
+    std::cout << "ERROR! couldn't load the texture image: " << imgPath << std::endl;
     exit(1);
   }
-  glDeleteShader(vertexShaderId);
-  glDeleteShader(fragmentShaderId);
-  return shaderProgramId;
-}
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+  glGenerateMipmap(GL_TEXTURE_2D);
 
-GLuint getUniformLocation(GLuint shaderProgramId, const char* uniformName) {
-  int uniformLoc = glGetUniformLocation(shaderProgramId, uniformName);
-  if (uniformLoc == -1) {
-    std::cout << "ERROR! couldn't locate the uniform: " << uniformName << std::endl;
-    exit(1);
-  }
-  return uniformLoc;
+  stbi_image_free(data);
+  return texture;
 }
