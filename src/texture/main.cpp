@@ -41,7 +41,13 @@ int main() {
   }
 
   Shader shader(vertexShaderSource, fragmentShaderSource);
-  GLuint textureId = loadTexture("assets/container.jpg");
+  GLuint texture1Id = loadTexture("assets/container.jpg");
+  GLuint texture2Id = loadTexture("assets/awesomeface.png");
+
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, texture1Id);
+  glActiveTexture(GL_TEXTURE1);
+  glBindTexture(GL_TEXTURE_2D, texture2Id);
 
   float vertices[] = {
     // positions         // colors           // texture coords
@@ -77,16 +83,19 @@ int main() {
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindVertexArray(0);
 
+  shader.use();
+  // mapping uniform to the GL_TEXTUREX
+  shader.setUniform1i("texture1Data", 0);
+  shader.setUniform1i("texture2Data", 1);
+
   while (!glfwWindowShouldClose(window)) {
     processInput(window);
-      
+
     glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     shader.use();
-
     glBindVertexArray(VAO);
-    glBindTexture(GL_TEXTURE_2D, textureId);
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
     glBindVertexArray(0);
@@ -121,13 +130,15 @@ GLuint loadTexture(const char* imgPath) {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  stbi_set_flip_vertically_on_load(true);
   int width, height, nrChannels;
   unsigned char *data = stbi_load(imgPath, &width, &height, &nrChannels, 0);
   if (!data) {
     std::cout << "ERROR! couldn't load the texture image: " << imgPath << std::endl;
     exit(1);
   }
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+  GLenum imgFmt = nrChannels == 4 ? GL_RGBA : GL_RGB;
+  glTexImage2D(GL_TEXTURE_2D, 0, imgFmt, width, height, 0, imgFmt, GL_UNSIGNED_BYTE, data);
   glGenerateMipmap(GL_TEXTURE_2D);
 
   stbi_image_free(data);

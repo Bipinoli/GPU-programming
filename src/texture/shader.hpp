@@ -8,6 +8,7 @@ class Shader {
     Shader(const GLchar* vertexShaderSource, const GLchar* fragmentShaderSource);
     void use();
     void setUniform1f(const char* name, float val);
+    void setUniform1i(const char* name, int val);
   private:
     GLuint shaderProgramId;
 };

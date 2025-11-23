@@ -21,7 +21,14 @@ void Shader::setUniform1f(const char* name, float val) {
   }
   glUniform1f(uniformLoc, val);
 }
-
+void Shader::setUniform1i(const char* name, int val) {
+  int uniformLoc = getUniformLocation(shaderProgramId, name);
+  if (uniformLoc == -1) {
+    std::cout << "ERROR! couldn't locate the uniform: " << name << std::endl;
+    exit(1);
+  }
+  glUniform1i(uniformLoc, val);
+}
 
 GLuint submitShader(const GLchar* source, GLenum shaderType) {
   GLuint shaderId = glCreateShader(shaderType);
