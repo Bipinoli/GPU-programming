@@ -1,5 +1,4 @@
 add_subdirectory(glfw)
-
 add_library(vendor_glfw INTERFACE)
 target_link_libraries(vendor_glfw INTERFACE glfw)
 # GLFW_INCLUDE_NONE asks GLFW to not include OpenGL related functions
@@ -22,3 +21,6 @@ set_target_properties(
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIGURATION>/vendor/stb_image"
 )
 
+add_subdirectory(glm)
+add_library(vendor_glm INTERFACE)
+target_link_libraries(vendor_glm INTERFACE glm)
