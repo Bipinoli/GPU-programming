@@ -29,7 +29,7 @@ int main() {
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-  GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", NULL, NULL);
+  GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "First 3D scene", NULL, NULL);
   if (window == NULL) {
       std::cout << "Failed to create GLFW window" << std::endl;
       glfwTerminate();
@@ -139,12 +139,8 @@ int main() {
   shader.setUniform1i("texture1Data", 0);
   shader.setUniform1i("texture2Data", 1);
 
-  // transform matrices
-  glm::mat4 view = glm::mat4(1.0f);
   glm::mat4 projection = glm::mat4(1.0f);
-  view = glm::translate(view , glm::vec3(0.0f, 0.0f, -3.0f));
   projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / SCR_HEIGHT, 0.1f, 100.0f);
-  shader.setUnifromMatrix4fv("view", glm::value_ptr(view));
   shader.setUnifromMatrix4fv("projection", glm::value_ptr(projection));
 
   while (!glfwWindowShouldClose(window)) {
@@ -154,6 +150,17 @@ int main() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     shader.use();
+
+    // camera/view transform
+    glm::mat4 view = glm::mat4(1.0f);
+    glm::vec3 camPos = glm::vec3(0.0f, 0.0f, 3.0f);
+    glm::vec3 camCenter = glm::vec3(0.0f, 0.0f, 0.0f);
+    glm::vec3 camUp = glm::vec3(0.0f, 1.0f, 0.0f);
+    camPos.z += sin(glfwGetTime()) * 2.0f;
+    camPos.y -= sin(glfwGetTime()) * 2.0f;
+    view = glm::lookAt(camPos, camCenter, camUp);
+    shader.setUnifromMatrix4fv("view", glm::value_ptr(view));
+
     glBindVertexArray(VAO);
     for (int i=0; i<10; i++) {
       glm::mat4 model = glm::mat4(1.0f);
