@@ -1,184 +1,212 @@
+//// Note:: the code below is adapted from the chatGPT generated code for reference
+
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-#include <iostream>
 #include <stb_image.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include "shader.hpp"
-#include "texture.hpp"
-
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void processInput(GLFWwindow *window);
+#include <iostream>
+#include <cmath>
 
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
+// Vertex shader for fullscreen quad
+const char* quadVertShaderSrc = R"glsl(
+#version 330 core
+layout (location = 0) in vec2 aPos;
+out vec2 TexCoords;
+void main() {
+    TexCoords = aPos * 0.5 + 0.5;
+    gl_Position = vec4(aPos, 0.0, 1.0);
+}
+)glsl";
+
+// Fragment shader (from previous response)
+const char* raymarchFragShaderSrc = R"glsl(
+#version 330 core
+out vec4 FragColor;
+in vec2 TexCoords;
+uniform sampler2D tex;
+uniform vec3 camPos;
+uniform mat3 camRot;
+uniform float time;
+
+// ---------- SDF Functions ----------
+float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)), 0.0);
+}
+float opSmoothUnion(float d1, float d2, float k) {
+    float h = clamp(0.5 + 0.5*(d2 - d1)/k, 0.0, 1.0);
+    return mix(d2,d1,h) - k*h*(1.0 - h);
+}
+
+// ---------- Scene ----------
+vec3 pos1, pos2;
+vec3 cubeHalf = vec3(0.5);
+
+float sceneSDF(vec3 p) {
+    float earlyMerge = 1.2; // distance at which merging starts
+    float c1 = sdBox(p - pos1, cubeHalf) - earlyMerge;
+    float c2 = sdBox(p - pos2, cubeHalf) - earlyMerge;
+    return opSmoothUnion(c1, c2, 0.2);
+}
+
+// ---------- Normals ----------
+vec3 getNormal(vec3 p) {
+    float eps = 0.0005;
+    return normalize(vec3(
+        sceneSDF(p + vec3(eps,0,0)) - sceneSDF(p - vec3(eps,0,0)),
+        sceneSDF(p + vec3(0,eps,0)) - sceneSDF(p - vec3(0,eps,0)),
+        sceneSDF(p + vec3(0,0,eps)) - sceneSDF(p - vec3(0,0,eps))
+    ));
+}
+
+// ---------- Triplanar Texture ----------
+vec3 triplanar(sampler2D tex, vec3 p, vec3 n) {
+    vec3 an = abs(n);
+    vec3 xproj = texture(tex, p.yz).rgb;
+    vec3 yproj = texture(tex, p.zx).rgb;
+    vec3 zproj = texture(tex, p.xy).rgb;
+    return (xproj*an.x + yproj*an.y + zproj*an.z) / (an.x + an.y + an.z);
+}
+
+// ---------- Raymarch ----------
+float raymarch(vec3 ro, vec3 rd, out vec3 pos) {
+    float t = 0.0;
+    for(int i=0;i<100;i++) {
+        pos = ro + t*rd;
+        float d = sceneSDF(pos);
+        if(d < 0.001) break;
+        t += d;
+        if(t>50.0) break;
+    }
+    return t;
+}
+
+// ---------- Main ----------
+void main() {
+    vec2 uv = TexCoords*2.0 - 1.0;
+    uv.x *= 800.0/600.0;
+
+    vec3 ro = camPos;
+    vec3 rd = normalize(camRot * vec3(uv.xy, -1.0));
+
+    float mergeDist = 1.5;
+    float t = sin(time)*0.5 + 0.5;
+    pos1 = vec3(-mergeDist*(1.0-t),0,0);
+    pos2 = vec3( mergeDist*(1.0-t),0,0);
+
+    vec3 p;
+    float dist = raymarch(ro, rd, p);
+    if(dist>50.0) { FragColor = vec4(0.2,0.3,0.3,1.0); return; }
+
+    vec3 n = getNormal(p);
+    vec3 lightDir = normalize(vec3(0.5,1.0,0.7));
+    float diff = max(dot(n, lightDir),0.0);
+    vec3 col = triplanar(tex, p, n);
+
+    FragColor = vec4(col*diff,1.0);
+}
+)glsl";
+
+// Function to compile shader
+GLuint compileShader(GLenum type, const char* src) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &src, nullptr);
+    glCompileShader(shader);
+    int success; char info[512];
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if(!success) { glGetShaderInfoLog(shader, 512, nullptr, info); std::cout << info << std::endl; }
+    return shader;
+}
+
+// Function to create shader program
+GLuint createProgram(const char* vsSrc, const char* fsSrc) {
+    GLuint vs = compileShader(GL_VERTEX_SHADER, vsSrc);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fsSrc);
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs); glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glDeleteShader(vs); glDeleteShader(fs);
+    return prog;
+}
+
+// Load texture
+GLuint loadTexture(const char* path) {
+    int w,h,n;
+    stbi_set_flip_vertically_on_load(true);
+    unsigned char* data = stbi_load(path, &w, &h, &n, 3);
+    if(!data) { std::cout << "Failed to load texture\n"; return 0; }
+    GLuint tex; glGenTextures(1,&tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D,0,GL_RGB,w,h,0,GL_RGB,GL_UNSIGNED_BYTE,data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    stbi_image_free(data);
+    return tex;
+}
 
 int main() {
-  glfwInit();
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);
 
-#ifdef __APPLE__
-  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-#endif
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH,SCR_HEIGHT,"Smooth Merge Cubes",NULL,NULL);
+    if(!window) { std::cout << "Failed to create GLFW window\n"; return -1; }
+    glfwMakeContextCurrent(window);
+    if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) { std::cout << "GLAD failed\n"; return -1; }
 
-  GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Raymarching merging cubes", NULL, NULL);
-  if (window == NULL) {
-      std::cout << "Failed to create GLFW window" << std::endl;
-      glfwTerminate();
-      return -1;
-  }
-  glfwMakeContextCurrent(window);
-  glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-
-  if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-      std::cout << "Failed to initialize GLAD" << std::endl;
-      return -1;
-  }
-
-  Shader shader("shaders/vertex.glsl", "shaders/fragment.glsl");
-  GLuint texture1Id = loadTexture("assets/container.jpg");
-  GLuint texture2Id = loadTexture("assets/awesomeface.png");
-
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, texture1Id);
-  glActiveTexture(GL_TEXTURE1);
-  glBindTexture(GL_TEXTURE_2D, texture2Id);
-
-  float vertices[] = {
-    // position           texture coord
-    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-    0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
-    0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-    0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-    -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
-    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-
-    -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-    0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-    0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-    0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-    -0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
-    -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-
-    -0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-    -0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-    -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-    -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-    -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-    -0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-
-    0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-    0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-    0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-    0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-    0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-    0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-
-    -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-    0.5f, -0.5f, -0.5f,  1.0f, 1.0f,
-    0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-    0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-    -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-    -0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-
-    -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
-    0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-    0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-    0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-    -0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
-    -0.5f,  0.5f, -0.5f,  0.0f, 1.0f
-  };
-  glm::vec3 cubePositions[] = {
-    glm::vec3( -0.2f,  0.0f,  0.0f),
-    glm::vec3( 0.8f,  0.0f,  0.0f),
-  };
- 
-
-  GLuint VBO, EBO, VAO;
-  glGenVertexArrays(1, &VAO);
-  glGenBuffers(1, &VBO);
-  glGenBuffers(1, &EBO);
-
-  glBindVertexArray(VAO);
-
-  glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
-  glEnableVertexAttribArray(0);
-  glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
-  glEnableVertexAttribArray(1);
-
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glBindVertexArray(0);
-
-
-  
-  glEnable(GL_DEPTH_TEST);
-
-  shader.use();
-  // mapping uniform to the GL_TEXTUREX
-  shader.setUniform1i("texture1Data", 0);
-  shader.setUniform1i("texture2Data", 1);
-
-  glm::mat4 projection = glm::mat4(1.0f);
-  projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / SCR_HEIGHT, 0.1f, 100.0f);
-  shader.setUnifromMatrix4fv("projection", glm::value_ptr(projection));
-
-  while (!glfwWindowShouldClose(window)) {
-    processInput(window);
-
-    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    shader.use();
-
-    // camera/view transform
-    glm::mat4 view = glm::mat4(1.0f);
-    glm::vec3 camPos = glm::vec3(0.0f, 0.0f, 3.0f);
-    glm::vec3 camCenter = glm::vec3(0.0f, 0.0f, 0.0f);
-    glm::vec3 camUp = glm::vec3(0.0f, 1.0f, 0.0f);
-    view = glm::lookAt(camPos, camCenter, camUp);
-    shader.setUnifromMatrix4fv("view", glm::value_ptr(view));
-
+    // Fullscreen quad
+    float quadVertices[] = { -1,-1, 1,-1, -1,1, 1,1 };
+    GLuint VAO,VBO;
+    glGenVertexArrays(1,&VAO); glGenBuffers(1,&VBO);
     glBindVertexArray(VAO);
-    for (int i=0; i<2; i++) {
-      glm::mat4 model = glm::mat4(1.0f);
-      model = glm::rotate(model, glm::radians(-55.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-      // float angle = 20.0f * (i + 5.0) * glfwGetTime(); 
-      glm::vec3 offset = cubePositions[i];
-      offset.x += sin(glfwGetTime()) * (i - 1) * 0.6;
-      model = glm::translate(model, offset);
-      // model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f));
-      shader.setUnifromMatrix4fv("model", glm::value_ptr(model));
-      glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindBuffer(GL_ARRAY_BUFFER,VBO);
+    glBufferData(GL_ARRAY_BUFFER,sizeof(quadVertices),quadVertices,GL_STATIC_DRAW);
+    glVertexAttribPointer(0,2,GL_FLOAT,GL_FALSE,2*sizeof(float),(void*)0);
+    glEnableVertexAttribArray(0);
+
+    GLuint shaderProg = createProgram(quadVertShaderSrc, raymarchFragShaderSrc);
+    GLuint texID = loadTexture("assets/container.jpg"); // <-- your texture path
+
+    glUseProgram(shaderProg);
+    glUniform1i(glGetUniformLocation(shaderProg,"tex"),0);
+
+    float lastTime = 0.0f;
+
+    while(!glfwWindowShouldClose(window)) {
+        float currentTime = glfwGetTime();
+        float deltaTime = currentTime - lastTime;
+        lastTime = currentTime;
+
+        glClearColor(0.2f,0.3f,0.3f,1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glUseProgram(shaderProg);
+
+        // Camera uniforms (static simple camera)
+        glUniform3f(glGetUniformLocation(shaderProg,"camPos"),0.0f,0.0f,3.0f);
+        float camRot[9] = {1,0,0,0,1,0,0,0,1};
+        glUniformMatrix3fv(glGetUniformLocation(shaderProg,"camRot"),1,GL_FALSE,camRot);
+
+        glUniform1f(glGetUniformLocation(shaderProg,"time"),currentTime);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, texID);
+
+        glBindVertexArray(VAO);
+        glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
     }
 
-    glBindVertexArray(0);
-
-    glfwSwapBuffers(window);
-    glfwPollEvents();
-  }
-
-  glDeleteBuffers(1, &VBO);
-  glDeleteVertexArrays(1, &VAO);
-
-  glfwTerminate();
-  return 0;
+    glDeleteVertexArrays(1,&VAO);
+    glDeleteBuffers(1,&VBO);
+    glfwTerminate();
+    return 0;
 }
-
-void processInput(GLFWwindow *window) {
-  if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-      glfwSetWindowShouldClose(window, true);
-}
-
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-  glViewport(0, 0, width, height);
-}
-
-
-
