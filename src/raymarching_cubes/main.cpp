@@ -45,7 +45,7 @@ vec3 pos1, pos2;
 vec3 cubeHalf = vec3(0.5);
 
 float sceneSDF(vec3 p) {
-    float earlyMerge = 1.2; // distance at which merging starts
+    float earlyMerge = 0.8; // distance at which merging starts
     float c1 = sdBox(p - pos1, cubeHalf) - earlyMerge;
     float c2 = sdBox(p - pos2, cubeHalf) - earlyMerge;
     return opSmoothUnion(c1, c2, 0.2);
